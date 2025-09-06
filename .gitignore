@@ -1,0 +1,20 @@
+﻿# Python
+venv/
+*.pyc
+__pycache__/
+*.pyo
+
+# Node
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# DB
+backend/events.db
+
+# Env files
+*.env
+
+# OS junk
+.DS_Store
+Thumbs.db
