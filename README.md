@@ -45,6 +45,15 @@ Frontend: React(Vite,Tailwind CSS,Recharts)
 Backend:  Flask(Pyhton),Flask-CORS
 Database: SQLite
 
+Output:
+<img width="1919" height="862" alt="image" src="https://github.com/user-attachments/assets/0685f25c-5771-4a1c-9be9-ab6a40524e1c" />
+<img width="1899" height="672" alt="image" src="https://github.com/user-attachments/assets/48a1e568-e3ad-4e8d-95f6-cbba9638212b" />
+<img width="1909" height="870" alt="image" src="https://github.com/user-attachments/assets/0e894f73-7e33-4661-b187-7f22b292e201" />
+<img width="1906" height="851" alt="image" src="https://github.com/user-attachments/assets/ec930162-918d-452a-9a21-be040d9de4ca" />
+
+
+
+
 AUTHOR:
 Arya H
 Linkdin Profile:www.linkedin.com/in/arya-h
