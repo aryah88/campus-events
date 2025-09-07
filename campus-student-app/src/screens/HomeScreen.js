@@ -17,7 +17,7 @@ import QRCode from "react-native-qrcode-svg";
 import debounce from "lodash.debounce";
 import Toast from "react-native-toast-message";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useFocusEffect, useRoute } from "@react-navigation/native";
+import { useFocusEffect } from "@react-navigation/native";
 
 // API client (mobile version)
 import {
@@ -30,8 +30,6 @@ import {
 const EVENT_TYPES = ["All", "Workshop", "Seminar", "Drive", "Hackathon"];
 
 export default function HomeScreen({ navigation }) {
-  const route = useRoute();
-
   const [events, setEvents] = useState([]);
   const [filtered, setFiltered] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -119,14 +117,6 @@ export default function HomeScreen({ navigation }) {
       if (studentId) fetchRegistrations(studentId);
     }, [fetchAll, fetchRegistrations, search, selectedType, studentId])
   );
-
-  // also refresh when login passes param (refreshedAfterLogin)
-  useEffect(() => {
-    if (route?.params?.refreshedAfterLogin) {
-      fetchAll(search, selectedType);
-      if (studentId) fetchRegistrations(studentId);
-    }
-  }, [route?.params?.refreshedAfterLogin]);
 
   // Debounced filter — uses lodash.debounce
   const debouncedSearch = useRef(

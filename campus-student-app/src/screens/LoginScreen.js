@@ -13,9 +13,8 @@ import {
 } from "react-native";
 import Toast from "react-native-toast-message";
 import { login, getEvents, whoami } from "../services/api.rn";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 
-export default function LoginScreen({ navigation }) {
+export default function LoginScreen({ onSignIn }) {
   // If you want a pre-filled value for quick testing, uncomment:
   // const [email, setEmail] = useState("stu1@gmail.com");
   const [email, setEmail] = useState("");
@@ -26,9 +25,9 @@ export default function LoginScreen({ navigation }) {
   // helper to show server-sent error message or fallback
   function showError(err) {
     const msg = err?.message || (err && String(err)) || "Unknown error";
-    Alert.alert("Error", msg);
-  }
-
+      const cleanEmail = email.trim().toLowerCase();
+      const res = await login(cleanEmail, password);
+      console.log("Login response:", res);
   const doLogin = async () => {
   if (!email || !password) return Alert.alert("Validation", "Enter email & password");
   setLoading(true);
@@ -82,10 +81,17 @@ export default function LoginScreen({ navigation }) {
       const events = await getEvents();
       console.log("[LoginScreen] getEvents result:", events);
 
-      Alert.alert("Test OK", `whoami: ${JSON.stringify(who)}\nEvents: ${Array.isArray(events) ? events.length : "?"}`);
+      
+      // Call the onSignIn callback to refresh auth state
+      if (typeof onSignIn === "function") {
+        await onSignIn();
+      }
     } catch (err) {
-      console.error("[LoginScreen] testBackend failed:", err);
-      showError(err);
+      if (err?.response?.data?.error) {
+        Toast.show({ type: "error", text1: "Login failed", text2: err.response.data.error });
+      } else {
+        Toast.show({ type: "error", text1: "Login failed", text2: err.message || String(err) });
+      }
     } finally {
       setTesting(false);
     }
@@ -101,6 +107,7 @@ export default function LoginScreen({ navigation }) {
       behavior={Platform.select({ ios: "padding", android: undefined })}
       style={styles.container}
     >
+      <Toast />
       <View style={styles.box}>
         <Text style={styles.title}>Campus Events — Student</Text>
 
@@ -118,8 +125,24 @@ export default function LoginScreen({ navigation }) {
           value={password}
           onChangeText={setPassword}
           placeholder="Password"
-          secureTextEntry
+        <Text style={styles.title}>Campus Events — Student</Text>
           style={styles.input}
+        <TextInput 
+          style={styles.input} 
+          placeholder="Email" 
+          autoCapitalize="none" 
+          keyboardType="email-address"
+          value={email} 
+          onChangeText={setEmail}
+          autoCorrect={false}
+          textContentType="username"
+        />
+        <TextInput 
+          style={styles.input} 
+          placeholder="Password" 
+          secureTextEntry 
+          value={password} 
+          onChangeText={setPassword}
           textContentType="password"
         />
 
@@ -131,13 +154,6 @@ export default function LoginScreen({ navigation }) {
           onPress={testBackend}
           style={[styles.btn, { backgroundColor: "#444", marginTop: 8 }]}
           disabled={testing}
-        >
-          {testing ? <ActivityIndicator color="#fff" /> : <Text style={styles.btnText}>Test GET /events</Text>}
-        </TouchableOpacity>
-
-        <TouchableOpacity onPress={showToken} style={[styles.btn, { backgroundColor: "#666", marginTop: 8 }]}>
-          <Text style={styles.btnText}>Show stored token</Text>
-        </TouchableOpacity>
       </View>
 
       <Toast />
@@ -146,10 +162,7 @@ export default function LoginScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, justifyContent: "center", padding: 16, backgroundColor: "#fff" },
+  title: { fontSize: 20, fontWeight: "700", marginBottom: 12, textAlign: "center" },
   box: { padding: 16, borderRadius: 8 },
   title: { fontSize: 20, fontWeight: "700", marginBottom: 12, textAlign: "center" },
-  input: { borderWidth: 1, borderColor: "#ddd", borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, marginBottom: 10 },
-  btn: { backgroundColor: "#007bff", padding: 12, borderRadius: 8, alignItems: "center" },
-  btnText: { color: "#fff", fontWeight: "700" },
 });

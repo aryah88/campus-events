@@ -52,6 +52,8 @@ const DEV_API_URL_OVERRIDE = typeof global !== "undefined" ? global.DEV_API_URL 
 const NGROK_URL = typeof global !== "undefined" ? global.NGROK_URL : null;
 // 3) If USE_LAN_API is true, prefer LAN
 const USE_LAN = typeof global !== "undefined" ? !!global.USE_LAN_API : false;
+// 4) Get LAN IP from global or use default
+const GLOBAL_LAN_IP = typeof global !== "undefined" ? global.LAN_IP : null;
 
 let API_BASE = normalizeToBaseUrl("127.0.0.1", DEFAULT_PORT); // iOS simulator default
 
@@ -70,7 +72,8 @@ try {
     API_BASE = String(NGROK_URL).replace(/\/+$/, "");
   } else if (USE_LAN) {
     // Allow LAN_IP to be accidentally set with http or port; normalize it
-    API_BASE = normalizeToBaseUrl(LAN_IP, DEFAULT_PORT);
+    const lanIp = GLOBAL_LAN_IP || LAN_IP;
+    API_BASE = normalizeToBaseUrl(lanIp, DEFAULT_PORT);
   }
 } catch (e) {
   // fallback to default already set above
@@ -78,7 +81,7 @@ try {
 }
 
 console.log(`[api.rn] chosen API_BASE = ${API_BASE}`);
-console.log(`[api.rn] Platform.OS = ${Platform.OS}, USE_LAN = ${USE_LAN}, DEV_API_URL_OVERRIDE = ${!!DEV_API_URL_OVERRIDE}, NGROK = ${!!NGROK_URL}`);
+console.log(`[api.rn] Platform.OS = ${Platform.OS}, USE_LAN = ${USE_LAN}, DEV_API_URL_OVERRIDE = ${!!DEV_API_URL_OVERRIDE}, NGROK = ${!!NGROK_URL}, LAN_IP = ${GLOBAL_LAN_IP || LAN_IP}`);
 
 // axios client
 const client = axios.create({
