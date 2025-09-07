@@ -7,16 +7,43 @@ from flask import Flask, request, jsonify, session
 from flask_cors import CORS
 from werkzeug.security import generate_password_hash, check_password_hash
 
+# JWT imports (use verify_jwt_in_request wrapped in helper for compatibility)
+from flask_jwt_extended import (
+    JWTManager,
+    create_access_token,
+    jwt_required,
+    get_jwt_identity,
+    verify_jwt_in_request,
+)
+
 # ---------------- config ----------------
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-key")
 DB_NAME = os.environ.get("DB_NAME", "events.db")
 FRONTEND_ORIGIN = os.environ.get("FRONTEND_ORIGIN", "http://localhost:5173")
-CORS(app, supports_credentials=True, resources={r"/*": {"origins": [FRONTEND_ORIGIN]}})
+
+# Allow common dev origins: Vite and Expo (exp://)
+CORS(app, supports_credentials=True, resources={r"/*": {"origins": [FRONTEND_ORIGIN, "http://localhost:5173", "exp://*"]}})
+
+# JWT config
+app.config["JWT_SECRET_KEY"] = os.environ.get("JWT_SECRET_KEY", "dev-jwt-secret-change-me")
+app.config["JWT_ACCESS_TOKEN_EXPIRES"] = datetime.timedelta(hours=8)
+jwt = JWTManager(app)
 
 # ---------------- small helpers ----------------
 def now_iso():
     return datetime.datetime.utcnow().isoformat()
+
+def get_jwt_identity_optional():
+    """
+    Try to verify a JWT in the request. If a valid JWT is present,
+    return the identity dict. If no JWT or invalid, return None.
+    """
+    try:
+        verify_jwt_in_request()
+        return get_jwt_identity()
+    except Exception:
+        return None
 
 def get_conn():
     conn = sqlite3.connect(DB_NAME)
@@ -60,22 +87,60 @@ def ensure_indexes():
 
 def ensure_schema():
     # ensure features column on event exists (non-destructive)
-    ensure_column_exists("event", "features TEXT", "features")
+    try:
+        ensure_column_exists("event", "features TEXT", "features")
+    except Exception:
+        pass
     # ensure unique index for attendance upserts
-    ensure_indexes()
+    try:
+        ensure_indexes()
+    except Exception:
+        pass
 
 # run migrations
 ensure_schema()
+# dev-only: add to backend/app.py (restart Flask after adding)
+@app.route("/debug/reset_password", methods=["POST"])
+def debug_reset_password():
+    data = request.json or {}
+    email = (data.get("email") or "").strip().lower()
+    newpw = data.get("new_password") or ""
+    if not email or not newpw:
+        return jsonify({"error":"email & new_password required"}), 400
+    pw_hash = generate_password_hash(newpw)
+    execute("UPDATE users SET password_hash = ? WHERE lower(email) = lower(?)", (pw_hash, email))
+    return jsonify({"message":"password updated for " + email})
 
 # ---------------- auth helpers ----------------
 def get_user_by_email(email):
-    rows = query("SELECT * FROM users WHERE email = ?", (email.lower(),))
+    rows = query("SELECT * FROM users WHERE lower(email) = lower(?)", (email.lower(),))
     return rows[0] if rows else None
 
 def require_session(roles=None):
-    # returns user dict or (response, status) tuple when unauthenticated/forbidden
+    """
+    Accept either a valid JWT or an active session cookie.
+    Returns:
+      - user dict when authenticated
+      - (response,status) tuple when unauthenticated/forbidden
+      - None for OPTIONS preflight
+    """
     if request.method == "OPTIONS":
         return None
+
+    # 1) Try JWT first (optional)
+    identity = get_jwt_identity_optional()
+    if identity:
+        # identity expected to contain {"id":..., "email":..., "role":...}
+        u = query("SELECT user_id, email, name, role FROM users WHERE user_id = ?", (identity.get("id"),))
+        if u:
+            user = u[0]
+            if roles and user.get("role") not in roles:
+                return (jsonify({"error":"forbidden"}), 403)
+            return user
+        # if identity provided but no matching user, treat as unauthenticated
+        return (jsonify({"error":"unauthenticated"}), 401)
+
+    # 2) Fallback to session cookie (existing behavior)
     u_id = session.get("user_id")
     if not u_id:
         return (jsonify({"error":"unauthenticated"}), 401)
@@ -108,21 +173,57 @@ def signup():
     session["user_id"] = u["user_id"]
     session["role"] = u["role"]
     session["email"] = u["email"]
-    return jsonify({"message":"user created","role":u["role"], "email":u["email"]})
+    # Create JWT for mobile clients as well
+    identity = {"id": u["user_id"], "email": u["email"], "role": u["role"]}
+    token = create_access_token(identity=identity)
+    return jsonify({"message":"user created","role":u["role"], "email":u["email"], "token": token})
 
 @app.route("/auth/login", methods=["POST"])
 def login():
+    # debug-friendly login handler — safe for local dev only
     data = request.json or {}
-    email = (data.get("email") or "").strip().lower()
-    password = data.get("password") or ""
+    # read raw incoming for debug
+    raw_email = data.get("email")
+    raw_password = data.get("password")
+    # normalize as your app expects
+    email = (raw_email or "").strip().lower()
+    password = raw_password or ""
+
+    app.logger.debug(f"[DEBUG LOGIN] incoming raw_email={repr(raw_email)} raw_password_len={len(raw_password or '')}")
+    app.logger.debug(f"[DEBUG LOGIN] normalized email={email!r} password_len={len(password)}")
+
+    # lookup
     u = get_user_by_email(email)
-    if not u or not check_password_hash(u["password_hash"], password):
+    if not u:
+        app.logger.debug(f"[DEBUG LOGIN] user NOT FOUND for email={email!r}")
+        # reply consistent with previous behavior
         return jsonify({"error":"invalid credentials"}), 401
+
+    # debug info about stored row
+    stored_hash = u.get("password_hash") or ""
+    app.logger.debug(f"[DEBUG LOGIN] found user_id={u.get('user_id')} email={u.get('email')} role={u.get('role')} pw_hash_len={len(stored_hash)}")
+
+    # check password (wrap in try to catch any hash-format issues)
+    try:
+        ok = check_password_hash(stored_hash, password)
+    except Exception as e:
+        app.logger.exception("[DEBUG LOGIN] check_password_hash raised exception")
+        return jsonify({"error":"internal error"}), 500
+
+    if not ok:
+        app.logger.debug(f"[DEBUG LOGIN] password mismatch for user_id={u.get('user_id')}")
+        return jsonify({"error":"invalid credentials"}), 401
+
+    # success: create session + token and return
     session.clear()
     session["user_id"] = u["user_id"]
     session["role"] = u["role"]
     session["email"] = u["email"]
-    return jsonify({"message":"ok","role":u["role"],"email":u["email"]})
+    identity = {"id": u["user_id"], "email": u["email"], "role": u["role"]}
+    token = create_access_token(identity=identity)
+    app.logger.debug(f"[DEBUG LOGIN] success for user_id={u.get('user_id')}")
+    return jsonify({"message":"ok","role":u["role"],"email":u["email"], "token": token})
+
 
 @app.route("/auth/logout", methods=["POST"])
 def logout():
@@ -131,6 +232,17 @@ def logout():
 
 @app.route("/auth/whoami", methods=["GET"])
 def whoami():
+    # First try JWT identity (works for mobile when sending Authorization header)
+    identity = get_jwt_identity_optional()
+    if identity:
+        return jsonify({
+            "authenticated": True,
+            "role": identity.get("role"),
+            "email": identity.get("email"),
+            "name": identity.get("name") if identity.get("name") else None
+        })
+
+    # Fallback to session cookie (existing behavior)
     u_id = session.get("user_id")
     if not u_id:
         return jsonify({"authenticated": False}), 200
@@ -366,7 +478,7 @@ def report_attendance_percentage():
              COUNT(DISTINCT a.att_id) as presents,
              ROUND(100.0*COUNT(DISTINCT a.att_id)/NULLIF(COUNT(DISTINCT r.reg_id),0),1) as attendance_pct
       FROM event e
-      LEFT JOIN registration r ON e.event_id=r.event_id
+      LEFT JOIN registration r ON e.event_id = r.event_id
       LEFT JOIN attendance a ON e.event_id=a.event_id AND r.student_id = a.student_id AND a.present=1
       WHERE (? IS NULL OR e.event_id=?)
       GROUP BY e.event_id
@@ -423,10 +535,6 @@ def report_avg_feedback():
 def health():
     return {"status":"ok","db":DB_NAME}
 
-if __name__ == "__main__":
-    # quick startup check
-    print("Starting backend - DB:", DB_NAME, "Frontend origin:", FRONTEND_ORIGIN)
-    app.run(debug=True)
 # GET /registrations?student_id=<id>
 @app.route("/registrations", methods=["GET"])
 def get_registrations_for_student():
@@ -446,3 +554,8 @@ def get_registrations_for_student():
     """
     rows = query(sql, (student_id,))
     return jsonify(rows)
+
+if __name__ == "__main__":
+    # quick startup check
+    print("Starting backend - DB:", DB_NAME, "Frontend origin:", FRONTEND_ORIGIN)
+    app.run(host="0.0.0.0", port=5000, debug=True)
