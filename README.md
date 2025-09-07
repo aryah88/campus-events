@@ -52,6 +52,12 @@ Output:
 <img width="1906" height="851" alt="image" src="https://github.com/user-attachments/assets/ec930162-918d-452a-9a21-be040d9de4ca" />
 
 
+There are two version of this the main branch contains the basic framework of the web page and all its components /n
+The new branch conatians the app side of this project /n
+for the app creation I have used React Native,Axios(API Client for mobile) /n
+Platform Module used to navigate in android is expo go and finally React Navigation for routing/n
+The backend side was updated with Flask-jwt-extended for authenticaion and token generation/n
+
 
 
 AUTHOR:
