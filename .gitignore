@@ -1,4 +1,4 @@
-﻿# Python
+# Python
 venv/
 *.pyc
 __pycache__/
@@ -18,3 +18,4 @@ backend/events.db
 # OS junk
 .DS_Store
 Thumbs.db
+.env
